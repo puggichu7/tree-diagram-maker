@@ -706,7 +706,6 @@
   function placeCaretAtEnd(el) {
     var range = document.createRange();
     range.selectNodeContents(el);
-    range.collapse(false);
     var sel = window.getSelection();
     sel.removeAllRanges();
     sel.addRange(range);
@@ -891,18 +890,34 @@
     state.selectedId = null;
     render();
     canvasInner.style.transform = "translate(0px,0px) scale(1)";
+    // canvasInner has no intrinsic size of its own (its children are
+    // absolutely positioned), so it collapses to 0x0 unless we size it
+    // explicitly before handing it to html2canvas.
+    var exportW = Math.max(1, parseFloat(nodesLayer.style.width) || 0);
+    var exportH = Math.max(1, parseFloat(nodesLayer.style.height) || 0);
+    canvasInner.style.width = exportW + "px";
+    canvasInner.style.height = exportH + "px";
     var bg = getComputedStyle(document.documentElement).getPropertyValue("--bg").trim();
     var filename = (state.title || "tree-diagram").replace(/[^a-z0-9\-_]+/gi, "_") + ".png";
     exportBtn.textContent = "Exporting…";
 
     function restoreView() {
       canvasInner.style.transform = prevTransform;
+      canvasInner.style.width = "";
+      canvasInner.style.height = "";
       state.selectedId = prevSelected;
       render();
       exportBtn.textContent = "Export PNG";
     }
 
-    html2canvas(canvasInner, { backgroundColor: bg || "#ffffff", useCORS: true }).then(function (canvas) {
+    html2canvas(canvasInner, {
+      backgroundColor: bg || "#ffffff",
+      useCORS: true,
+      width: exportW,
+      height: exportH,
+      windowWidth: exportW,
+      windowHeight: exportH
+    }).then(function (canvas) {
       canvas.toBlob(function (blob) {
         if (!blob) { alert("Export failed. Try again, or use a smaller diagram."); restoreView(); return; }
         var afterCapCheck = downloadsCapChecked ? Promise.resolve(downloadsCap) : getDownloadsCap();
