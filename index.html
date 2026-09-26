@@ -296,6 +296,7 @@
   <header>
     <div class="brand"><span class="mark">🌳</span><span class="name">Branchwork</span></div>
     <input id="title-input" placeholder="Untitled tree diagram" maxlength="60">
+    <span id="sync-label" style="font-size:11px;color:var(--muted);min-width:64px;"></span>
     <div class="toolbar">
       <button class="tool" id="btn-new" title="Start a new diagram">New</button>
       <button class="tool" id="btn-theme" title="Toggle light/dark">Theme</button>
@@ -359,6 +360,7 @@
   var emptyState = document.getElementById("empty-state");
   var titleInput = document.getElementById("title-input");
   var zoomLabel = document.getElementById("zoom-label");
+  syncEl = document.getElementById("sync-label");
 
   function uid() {
     return "n" + Math.random().toString(36).slice(2, 10);
@@ -410,23 +412,100 @@
     save();
   }
 
+  // ---------- shared/live save (Artifact "artifact" capability) ----------
+  var DATA_PATH = "data/tree.json";
+  var artifactCap = null;
+  var collabAvailable = false;
+  var collabChecked = false;
+  var saveTimer = null;
+  var savingNow = false;
+  var resendPending = false;
+  var syncEl = null;
+
+  function setSyncLabel(text) {
+    if (!syncEl) return;
+    syncEl.textContent = text;
+  }
+
+  function initCollab() {
+    if (!window.claude || typeof window.claude.use !== "function") {
+      collabChecked = true;
+      return Promise.resolve(null);
+    }
+    return window.claude.use("artifact").then(function (cap) {
+      artifactCap = cap;
+      collabAvailable = !!cap;
+      collabChecked = true;
+      setSyncLabel(collabAvailable ? "Live" : "");
+      return cap;
+    }).catch(function () {
+      collabChecked = true;
+      return null;
+    });
+  }
+
+  function publishNow() {
+    if (!artifactCap) return;
+    savingNow = true;
+    setSyncLabel("Saving…");
+    artifactCap.publish({ "data/tree.json": snapshot() }).then(function () {
+      savingNow = false;
+      setSyncLabel("Live");
+      if (resendPending) { resendPending = false; publishNow(); }
+    }).catch(function (err) {
+      savingNow = false;
+      var code = err && err.code;
+      if (code === "conflict") return; // this view is being reloaded to the winner
+      if (code === "not_writer" || code === "not_granted") {
+        collabAvailable = false;
+        setSyncLabel("Read-only");
+        return;
+      }
+      if (code === "rate_limited") {
+        setSyncLabel("Live");
+        saveTimer = setTimeout(publishNow, 2000);
+        return;
+      }
+      setSyncLabel("Not synced");
+    });
+  }
+
   function save() {
     try {
       localStorage.setItem(STORAGE_KEY, snapshot());
     } catch (e) { /* storage unavailable, ignore */ }
+    if (!collabAvailable) return;
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(function () {
+      if (savingNow) { resendPending = true; return; }
+      publishNow();
+    }, 500);
+  }
+
+  function applyLoadedData(data) {
+    if (!data || !data.rootId) return false;
+    state.title = data.title || "";
+    state.nodes = data.nodes || {};
+    state.order = data.order || {};
+    state.rootId = data.rootId;
+    return true;
+  }
+
+  // Try the shared file first (what everyone in this workspace sees);
+  // fall back to this browser's local copy when there's no shared file yet
+  // (e.g. first run, or opened outside a collaborative session).
+  function loadShared() {
+    return fetch(DATA_PATH, { cache: "no-store" }).then(function (res) {
+      if (!res.ok) return null;
+      return res.json();
+    }).catch(function () { return null; });
   }
 
   function load() {
     try {
       var raw = localStorage.getItem(STORAGE_KEY);
       if (!raw) return false;
-      var data = JSON.parse(raw);
-      if (!data || !data.rootId) return false;
-      state.title = data.title || "";
-      state.nodes = data.nodes || {};
-      state.order = data.order || {};
-      state.rootId = data.rootId;
-      return true;
+      return applyLoadedData(JSON.parse(raw));
     } catch (e) { return false; }
   }
 
@@ -965,11 +1044,13 @@
     if (savedTheme) document.documentElement.setAttribute("data-theme", savedTheme);
   } catch (e) {}
 
-  var hadSaved = load();
-  render();
-  if (hadSaved) {
-    requestAnimationFrame(fitToScreen);
-  }
+  initCollab().then(function () {
+    return collabAvailable ? loadShared() : null;
+  }).then(function (shared) {
+    var hadSaved = shared ? applyLoadedData(shared) : load();
+    render();
+    if (hadSaved) requestAnimationFrame(fitToScreen);
+  });
 })();
 </script>
 </body>
