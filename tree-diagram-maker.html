@@ -1,0 +1,915 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Branchwork — Tree Diagram Maker</title>
+<style>
+  :root {
+    --bg: #f4f5f1;
+    --surface: #ffffff;
+    --surface-2: #ebede7;
+    --text: #182019;
+    --muted: #5c6b60;
+    --border: #d9ddd3;
+    --accent: #1f6f4a;
+    --accent-soft: #e3efe7;
+    --node-bg: #ffffff;
+    --node-border: #2c3a30;
+    --shadow: rgba(24,32,25,0.10);
+    --danger: #b3432b;
+    box-sizing: border-box;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #14181a;
+      --surface: #1c2224;
+      --surface-2: #232b2d;
+      --text: #e9ede9;
+      --muted: #93a29a;
+      --border: #313b3a;
+      --accent: #6bbf94;
+      --accent-soft: #22332a;
+      --node-bg: #202826;
+      --node-border: #6bbf94;
+      --shadow: rgba(0,0,0,0.45);
+      --danger: #e0836a;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #14181a;
+    --surface: #1c2224;
+    --surface-2: #232b2d;
+    --text: #e9ede9;
+    --muted: #93a29a;
+    --border: #313b3a;
+    --accent: #6bbf94;
+    --accent-soft: #22332a;
+    --node-bg: #202826;
+    --node-border: #6bbf94;
+    --shadow: rgba(0,0,0,0.45);
+    --danger: #e0836a;
+  }
+  html, body {
+    height: 100%;
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    overscroll-behavior: none;
+  }
+  * { -webkit-tap-highlight-color: transparent; }
+  #app {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+  }
+  header {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 10px 16px;
+    padding-top: calc(10px + env(safe-area-inset-top, 0px));
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
+    z-index: 20;
+  }
+  .brand {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    margin-right: 4px;
+  }
+  .brand .mark { font-size: 20px; }
+  .brand .name {
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: 18px;
+    letter-spacing: 0.2px;
+  }
+  #title-input {
+    border: none;
+    background: transparent;
+    color: var(--muted);
+    font-size: 14px;
+    padding: 6px 8px;
+    border-radius: 6px;
+    min-width: 100px;
+    max-width: 220px;
+  }
+  #title-input:focus {
+    outline: none;
+    background: var(--surface-2);
+    color: var(--text);
+  }
+  .toolbar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .spacer { flex: 1; }
+  button.tool {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    padding: 7px 12px;
+    border-radius: 8px;
+    font-size: 13px;
+    cursor: pointer;
+    line-height: 1.2;
+  }
+  button.tool:hover { background: var(--surface-2); }
+  button.tool:focus-visible, button.icon:focus-visible, .node:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+  button.tool.primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fdfdfb;
+  }
+  button.icon {
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 14px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  button.icon:hover { background: var(--surface-2); }
+  .zoom-group {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 2px;
+    background: var(--surface);
+  }
+  .zoom-group button.icon { border: none; width: 28px; height: 28px; }
+  #zoom-label {
+    font-size: 12px;
+    color: var(--muted);
+    width: 42px;
+    text-align: center;
+  }
+
+  #viewport {
+    position: relative;
+    flex: 1;
+    overflow: hidden;
+    background:
+      radial-gradient(var(--border) 1px, transparent 1px);
+    background-size: 22px 22px;
+    background-position: 0 0;
+    cursor: grab;
+  }
+  #viewport.panning { cursor: grabbing; }
+  #canvasInner {
+    position: absolute;
+    top: 0;
+    left: 0;
+    transform-origin: 0 0;
+    will-change: transform;
+  }
+  #lines {
+    position: absolute;
+    top: 0;
+    left: 0;
+    overflow: visible;
+    pointer-events: none;
+  }
+  #nodesLayer {
+    position: absolute;
+    top: 0;
+    left: 0;
+  }
+  .node {
+    position: absolute;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--node-bg);
+    border: 2px solid var(--node-border);
+    border-radius: 10px;
+    box-shadow: 0 2px 6px var(--shadow);
+    cursor: pointer;
+    padding: 0 14px;
+    user-select: none;
+  }
+  .node.selected {
+    box-shadow: 0 0 0 3px var(--accent-soft), 0 2px 6px var(--shadow);
+  }
+  .node .text {
+    font-size: 14px;
+    line-height: 1.3;
+    text-align: center;
+    outline: none;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-width: 100%;
+  }
+  .node .text[contenteditable="true"] {
+    cursor: text;
+    background: var(--accent-soft);
+    border-radius: 4px;
+    padding: 2px 4px;
+  }
+  .toolbelt {
+    position: absolute;
+    display: flex;
+    gap: 4px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 4px;
+    box-shadow: 0 4px 10px var(--shadow);
+    white-space: nowrap;
+  }
+  .toolbelt button {
+    border: none;
+    background: transparent;
+    color: var(--text);
+    width: 26px;
+    height: 26px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .toolbelt button:hover { background: var(--surface-2); }
+  .toolbelt button.danger:hover { background: var(--danger); color: #fff; }
+  .swatch {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    display: inline-block;
+    border: 1px solid var(--border);
+  }
+
+  #empty-state {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 14px;
+    text-align: center;
+    color: var(--muted);
+    pointer-events: none;
+  }
+  #empty-state.hidden { display: none; }
+  #empty-state .hint { font-size: 14px; max-width: 280px; }
+  #empty-state button { pointer-events: all; }
+
+  #hint-bar {
+    padding: 6px 16px;
+    padding-bottom: calc(6px + env(safe-area-inset-bottom, 0px));
+    font-size: 12px;
+    color: var(--muted);
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    text-align: center;
+  }
+  @media (max-width: 640px) {
+    #hint-bar { display: none; }
+    .brand .name { display: none; }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <div class="brand"><span class="mark">🌳</span><span class="name">Branchwork</span></div>
+    <input id="title-input" placeholder="Untitled tree diagram" maxlength="60">
+    <div class="toolbar">
+      <button class="tool" id="btn-new" title="Start a new diagram">New</button>
+      <button class="tool" id="btn-theme" title="Toggle light/dark">Theme</button>
+      <button class="tool primary" id="btn-export" title="Download as PNG">Export PNG</button>
+    </div>
+    <div class="spacer"></div>
+    <div class="zoom-group">
+      <button class="icon" id="btn-zoom-out" title="Zoom out">−</button>
+      <span id="zoom-label">100%</span>
+      <button class="icon" id="btn-zoom-in" title="Zoom in">+</button>
+      <button class="icon" id="btn-zoom-reset" title="Fit to screen">⤢</button>
+    </div>
+  </header>
+
+  <div id="viewport">
+    <div id="canvasInner">
+      <svg id="lines" width="1" height="1"></svg>
+      <div id="nodesLayer"></div>
+    </div>
+    <div id="empty-state">
+      <div class="hint">Start with a root node, then branch out. Click a node to add children, siblings, or change its color.</div>
+      <button class="tool primary" id="btn-add-root">Add root node</button>
+    </div>
+  </div>
+
+  <div id="hint-bar">Click a node to select it · Tab adds a child · Enter adds a sibling · Delete removes it · double-click to rename</div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script>
+(function () {
+  "use strict";
+
+  var STORAGE_KEY = "branchwork-tree-v1";
+  var THEME_KEY = "branchwork-theme";
+  var HSPACE = 220;   // min horizontal gap between leaf centers baseline unit
+  var VSPACE = 110;   // vertical distance between depth levels
+  var NODE_H = 46;
+  var PAD = 60;
+
+  var COLORS = ["#2c3a30", "#1f6f4a", "#a25d1e", "#6c3fa0", "#1f5f8b", "#b3432b"];
+
+  var state = {
+    title: "",
+    nodes: {},      // id -> {id, parentId, text, color}
+    order: {},      // parentId -> [childId,...] ; root's parentId key is "root"
+    rootId: null,
+    selectedId: null,
+    zoom: 1,
+    panX: 40,
+    panY: 40
+  };
+
+  var history = [];
+  var redoStack = [];
+
+  var viewport = document.getElementById("viewport");
+  var canvasInner = document.getElementById("canvasInner");
+  var linesSvg = document.getElementById("lines");
+  var nodesLayer = document.getElementById("nodesLayer");
+  var emptyState = document.getElementById("empty-state");
+  var titleInput = document.getElementById("title-input");
+  var zoomLabel = document.getElementById("zoom-label");
+
+  function uid() {
+    return "n" + Math.random().toString(36).slice(2, 10);
+  }
+
+  function children(id) {
+    var kids = state.order[id] || [];
+    return kids.map(function (k) { return state.nodes[k]; }).filter(Boolean);
+  }
+
+  function snapshot() {
+    return JSON.stringify({
+      title: state.title,
+      nodes: state.nodes,
+      order: state.order,
+      rootId: state.rootId
+    });
+  }
+
+  function pushHistory() {
+    history.push(snapshot());
+    if (history.length > 60) history.shift();
+    redoStack = [];
+  }
+
+  function restore(snap) {
+    var data = JSON.parse(snap);
+    state.title = data.title;
+    state.nodes = data.nodes;
+    state.order = data.order;
+    state.rootId = data.rootId;
+    state.selectedId = null;
+    render();
+  }
+
+  function undo() {
+    if (!history.length) return;
+    redoStack.push(snapshot());
+    var snap = history.pop();
+    restore(snap);
+    save();
+  }
+
+  function redo() {
+    if (!redoStack.length) return;
+    history.push(snapshot());
+    var snap = redoStack.pop();
+    restore(snap);
+    save();
+  }
+
+  function save() {
+    try {
+      localStorage.setItem(STORAGE_KEY, snapshot());
+    } catch (e) { /* storage unavailable, ignore */ }
+  }
+
+  function load() {
+    try {
+      var raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return false;
+      var data = JSON.parse(raw);
+      if (!data || !data.rootId) return false;
+      state.title = data.title || "";
+      state.nodes = data.nodes || {};
+      state.order = data.order || {};
+      state.rootId = data.rootId;
+      return true;
+    } catch (e) { return false; }
+  }
+
+  // ---------- structure editing ----------
+
+  function addRoot() {
+    pushHistory();
+    var id = uid();
+    state.nodes[id] = { id: id, parentId: null, text: "Main idea", color: COLORS[0] };
+    state.order[id] = [];
+    state.rootId = id;
+    state.selectedId = id;
+    render();
+    save();
+  }
+
+  function addChild(parentId) {
+    if (!state.nodes[parentId]) return;
+    pushHistory();
+    var id = uid();
+    var parentColor = state.nodes[parentId].color;
+    state.nodes[id] = { id: id, parentId: parentId, text: "New node", color: parentColor };
+    state.order[id] = [];
+    if (!state.order[parentId]) state.order[parentId] = [];
+    state.order[parentId].push(id);
+    state.selectedId = id;
+    render();
+    save();
+    focusNodeText(id);
+  }
+
+  function addSibling(nodeId) {
+    var node = state.nodes[nodeId];
+    if (!node) return;
+    if (!node.parentId) { addChild(nodeId); return; }
+    pushHistory();
+    var id = uid();
+    state.nodes[id] = { id: id, parentId: node.parentId, text: "New node", color: node.color };
+    state.order[id] = [];
+    var siblings = state.order[node.parentId];
+    var idx = siblings.indexOf(nodeId);
+    siblings.splice(idx + 1, 0, id);
+    state.selectedId = id;
+    render();
+    save();
+    focusNodeText(id);
+  }
+
+  function deleteNode(nodeId) {
+    var node = state.nodes[nodeId];
+    if (!node) return;
+    var hasKids = (state.order[nodeId] || []).length > 0;
+    if (hasKids && !confirm("Delete this node and everything under it?")) return;
+    pushHistory();
+    (function remove(id) {
+      (state.order[id] || []).slice().forEach(remove);
+      delete state.nodes[id];
+      delete state.order[id];
+    })(nodeId);
+    if (node.parentId) {
+      var siblings = state.order[node.parentId];
+      var idx = siblings.indexOf(nodeId);
+      if (idx > -1) siblings.splice(idx, 1);
+    } else {
+      state.rootId = null;
+    }
+    state.selectedId = null;
+    render();
+    save();
+  }
+
+  function setColor(nodeId, color) {
+    if (!state.nodes[nodeId]) return;
+    pushHistory();
+    state.nodes[nodeId].color = color;
+    render();
+    save();
+  }
+
+  function setText(nodeId, text) {
+    var node = state.nodes[nodeId];
+    if (!node) return;
+    var clean = text.replace(/\n+/g, " ").trim() || "Untitled";
+    if (clean === node.text) return;
+    pushHistory();
+    node.text = clean;
+    render();
+    save();
+  }
+
+  // ---------- layout ----------
+
+  function measureWidth(text) {
+    var w = 24 + text.length * 7.2;
+    return Math.max(96, Math.min(260, w));
+  }
+
+  function computeLayout() {
+    if (!state.rootId || !state.nodes[state.rootId]) return null;
+    var cursor = 0;
+    var positions = {};
+
+    function visit(id, depth) {
+      var node = state.nodes[id];
+      var w = measureWidth(node.text);
+      var kids = state.order[id] || [];
+      var x, y = depth * VSPACE;
+      if (!kids.length) {
+        x = cursor + w / 2;
+        cursor += w + 48;
+      } else {
+        kids.forEach(function (k) { visit(k, depth + 1); });
+        var firstX = positions[kids[0]].x;
+        var lastX = positions[kids[kids.length - 1]].x;
+        x = (firstX + lastX) / 2;
+      }
+      positions[id] = { x: x, y: y, w: w, h: NODE_H };
+    }
+    visit(state.rootId, 0);
+    return positions;
+  }
+
+  // ---------- rendering ----------
+
+  function render() {
+    titleInput.value = state.title;
+    var hasTree = !!(state.rootId && state.nodes[state.rootId]);
+    emptyState.classList.toggle("hidden", hasTree);
+    nodesLayer.innerHTML = "";
+    linesSvg.innerHTML = "";
+    if (!hasTree) {
+      linesSvg.setAttribute("width", 1);
+      linesSvg.setAttribute("height", 1);
+      applyTransform();
+      return;
+    }
+
+    var positions = computeLayout();
+    var maxX = 0, maxY = 0;
+    Object.keys(positions).forEach(function (id) {
+      var p = positions[id];
+      maxX = Math.max(maxX, p.x + p.w / 2);
+      maxY = Math.max(maxY, p.y + p.h);
+    });
+    var width = maxX + PAD * 2;
+    var height = maxY + PAD * 2;
+    linesSvg.setAttribute("width", width);
+    linesSvg.setAttribute("height", height);
+    nodesLayer.style.width = width + "px";
+    nodesLayer.style.height = height + "px";
+
+    // draw connectors
+    Object.keys(state.nodes).forEach(function (id) {
+      var node = state.nodes[id];
+      if (!node.parentId) return;
+      var p = positions[id], pp = positions[node.parentId];
+      if (!p || !pp) return;
+      var x1 = pp.x + PAD, y1 = pp.y + pp.h + PAD;
+      var x2 = p.x + PAD, y2 = p.y + PAD;
+      var midY = (y1 + y2) / 2;
+      var d = "M " + x1 + " " + y1 + " C " + x1 + " " + midY + ", " + x2 + " " + midY + ", " + x2 + " " + y2;
+      var path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      path.setAttribute("d", d);
+      path.setAttribute("fill", "none");
+      path.setAttribute("stroke", "var(--border)");
+      path.setAttribute("stroke-width", "2");
+      linesSvg.appendChild(path);
+    });
+
+    // draw nodes
+    Object.keys(state.nodes).forEach(function (id) {
+      var node = state.nodes[id];
+      var p = positions[id];
+      if (!p) return;
+      var el = document.createElement("div");
+      el.className = "node" + (id === state.selectedId ? " selected" : "");
+      el.style.left = (p.x + PAD - p.w / 2) + "px";
+      el.style.top = (p.y + PAD) + "px";
+      el.style.width = p.w + "px";
+      el.style.height = p.h + "px";
+      el.style.borderColor = node.color;
+      el.dataset.id = id;
+      el.tabIndex = 0;
+
+      var text = document.createElement("div");
+      text.className = "text";
+      text.textContent = node.text;
+      text.spellcheck = false;
+      el.appendChild(text);
+
+      if (id === state.selectedId) {
+        el.appendChild(buildToolbelt(id, p));
+      }
+
+      el.addEventListener("click", function (e) {
+        e.stopPropagation();
+        if (text.getAttribute("contenteditable") === "true") return;
+        selectNode(id);
+      });
+      el.addEventListener("dblclick", function (e) {
+        e.stopPropagation();
+        beginEdit(id, text);
+      });
+      el.addEventListener("keydown", function (e) {
+        handleNodeKeydown(e, id);
+      });
+
+      nodesLayer.appendChild(el);
+    });
+
+    applyTransform();
+  }
+
+  function buildToolbelt(id, p) {
+    var bar = document.createElement("div");
+    bar.className = "toolbelt";
+    bar.style.left = "0px";
+    bar.style.top = (-38) + "px";
+    bar.addEventListener("click", function (e) { e.stopPropagation(); });
+    bar.addEventListener("dblclick", function (e) { e.stopPropagation(); });
+
+    function makeBtn(label, title, onClick, danger) {
+      var b = document.createElement("button");
+      if (danger) b.className = "danger";
+      b.title = title;
+      b.textContent = label;
+      b.addEventListener("click", onClick);
+      return b;
+    }
+
+    bar.appendChild(makeBtn("⇥", "Add child (Tab)", function () { addChild(id); }));
+    bar.appendChild(makeBtn("↵", "Add sibling (Enter)", function () { addSibling(id); }));
+    bar.appendChild(makeBtn("✎", "Rename (double-click)", function () {
+      var textEl = nodesLayer.querySelector('.node[data-id="' + id + '"] .text');
+      if (textEl) beginEdit(id, textEl);
+    }));
+
+    COLORS.forEach(function (c) {
+      var b = document.createElement("button");
+      b.title = "Set color";
+      var dot = document.createElement("span");
+      dot.className = "swatch";
+      dot.style.background = c;
+      b.appendChild(dot);
+      b.addEventListener("click", function () { setColor(id, c); });
+      bar.appendChild(b);
+    });
+
+    bar.appendChild(makeBtn("✕", "Delete (Delete)", function () { deleteNode(id); }, true));
+    return bar;
+  }
+
+  function beginEdit(id, textEl) {
+    textEl.setAttribute("contenteditable", "true");
+    textEl.focus();
+    document.execCommand && placeCaretAtEnd(textEl);
+    var commit = function () {
+      textEl.removeAttribute("contenteditable");
+      setText(id, textEl.textContent);
+      textEl.removeEventListener("blur", commit);
+    };
+    textEl.addEventListener("blur", commit);
+    textEl.addEventListener("keydown", function onKey(e) {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        textEl.blur();
+        textEl.removeEventListener("keydown", onKey);
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        textEl.textContent = state.nodes[id].text;
+        textEl.blur();
+        textEl.removeEventListener("keydown", onKey);
+      }
+    });
+  }
+
+  function placeCaretAtEnd(el) {
+    var range = document.createRange();
+    range.selectNodeContents(el);
+    range.collapse(false);
+    var sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+  }
+
+  function focusNodeText(id) {
+    requestAnimationFrame(function () {
+      var textEl = nodesLayer.querySelector('.node[data-id="' + id + '"] .text');
+      if (textEl) beginEdit(id, textEl);
+    });
+  }
+
+  function selectNode(id) {
+    state.selectedId = id;
+    render();
+  }
+
+  function handleNodeKeydown(e, id) {
+    if (e.target.getAttribute && e.target.getAttribute("contenteditable") === "true") return;
+    if (e.key === "Tab") { e.preventDefault(); addChild(id); }
+    else if (e.key === "Enter") { e.preventDefault(); addSibling(id); }
+    else if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); deleteNode(id); }
+    else if (e.key === "Escape") { state.selectedId = null; render(); }
+  }
+
+  // ---------- pan & zoom ----------
+
+  function applyTransform() {
+    canvasInner.style.transform = "translate(" + state.panX + "px," + state.panY + "px) scale(" + state.zoom + ")";
+    zoomLabel.textContent = Math.round(state.zoom * 100) + "%";
+  }
+
+  function setZoom(z, cx, cy) {
+    var newZoom = Math.min(2, Math.max(0.3, z));
+    if (cx === undefined) {
+      var rect = viewport.getBoundingClientRect();
+      cx = rect.width / 2;
+      cy = rect.height / 2;
+    }
+    var worldX = (cx - state.panX) / state.zoom;
+    var worldY = (cy - state.panY) / state.zoom;
+    state.zoom = newZoom;
+    state.panX = cx - worldX * newZoom;
+    state.panY = cy - worldY * newZoom;
+    applyTransform();
+  }
+
+  function fitToScreen() {
+    var content = nodesLayer;
+    var cw = parseFloat(content.style.width) || 0;
+    var ch = parseFloat(content.style.height) || 0;
+    var rect = viewport.getBoundingClientRect();
+    if (!cw || !ch) { state.zoom = 1; state.panX = 40; state.panY = 40; applyTransform(); return; }
+    var scale = Math.min((rect.width - 80) / cw, (rect.height - 80) / ch, 1.2);
+    scale = Math.max(scale, 0.3);
+    state.zoom = scale;
+    state.panX = (rect.width - cw * scale) / 2;
+    state.panY = (rect.height - ch * scale) / 2;
+    applyTransform();
+  }
+
+  var isPanning = false, panStart = null;
+  viewport.addEventListener("mousedown", function (e) {
+    if (e.target !== viewport && e.target !== canvasInner && e.target.id !== "lines") return;
+    isPanning = true;
+    panStart = { x: e.clientX, y: e.clientY, panX: state.panX, panY: state.panY };
+    viewport.classList.add("panning");
+    state.selectedId = null;
+    render();
+  });
+  window.addEventListener("mousemove", function (e) {
+    if (!isPanning) return;
+    state.panX = panStart.panX + (e.clientX - panStart.x);
+    state.panY = panStart.panY + (e.clientY - panStart.y);
+    applyTransform();
+  });
+  window.addEventListener("mouseup", function () {
+    isPanning = false;
+    viewport.classList.remove("panning");
+  });
+
+  viewport.addEventListener(
+    "wheel",
+    function (e) {
+      e.preventDefault();
+      var rect = viewport.getBoundingClientRect();
+      var cx = e.clientX - rect.left;
+      var cy = e.clientY - rect.top;
+      var delta = -e.deltaY * 0.0016;
+      setZoom(state.zoom * (1 + delta), cx, cy);
+    },
+    { passive: false }
+  );
+
+  viewport.addEventListener("click", function (e) {
+    if (e.target === viewport || e.target === canvasInner || e.target.id === "lines") {
+      state.selectedId = null;
+      render();
+    }
+  });
+
+  // touch pan/pinch (basic)
+  var touchState = null;
+  viewport.addEventListener("touchstart", function (e) {
+    if (e.touches.length === 1) {
+      touchState = { x: e.touches[0].clientX, y: e.touches[0].clientY, panX: state.panX, panY: state.panY };
+    } else if (e.touches.length === 2) {
+      touchState = { pinch: true, dist: touchDist(e), zoom: state.zoom };
+    }
+  }, { passive: true });
+  viewport.addEventListener("touchmove", function (e) {
+    if (!touchState) return;
+    if (e.touches.length === 1 && !touchState.pinch) {
+      state.panX = touchState.panX + (e.touches[0].clientX - touchState.x);
+      state.panY = touchState.panY + (e.touches[0].clientY - touchState.y);
+      applyTransform();
+    } else if (e.touches.length === 2 && touchState.pinch) {
+      var d = touchDist(e);
+      setZoom(touchState.zoom * (d / touchState.dist));
+    }
+  }, { passive: true });
+  viewport.addEventListener("touchend", function () { touchState = null; });
+  function touchDist(e) {
+    var dx = e.touches[0].clientX - e.touches[1].clientX;
+    var dy = e.touches[0].clientY - e.touches[1].clientY;
+    return Math.sqrt(dx * dx + dy * dy);
+  }
+
+  // ---------- toolbar wiring ----------
+
+  document.getElementById("btn-add-root").addEventListener("click", addRoot);
+  document.getElementById("btn-new").addEventListener("click", function () {
+    if (state.rootId && !confirm("Start a new diagram? This clears the current one.")) return;
+    pushHistory();
+    state.title = "";
+    state.nodes = {};
+    state.order = {};
+    state.rootId = null;
+    state.selectedId = null;
+    render();
+    save();
+  });
+  document.getElementById("btn-zoom-in").addEventListener("click", function () { setZoom(state.zoom * 1.2); });
+  document.getElementById("btn-zoom-out").addEventListener("click", function () { setZoom(state.zoom / 1.2); });
+  document.getElementById("btn-zoom-reset").addEventListener("click", fitToScreen);
+
+  titleInput.addEventListener("input", function () {
+    state.title = titleInput.value;
+    save();
+  });
+
+  document.getElementById("btn-theme").addEventListener("click", function () {
+    var cur = document.documentElement.getAttribute("data-theme");
+    var next = cur === "dark" ? "light" : "dark";
+    document.documentElement.setAttribute("data-theme", next);
+    try { localStorage.setItem(THEME_KEY, next); } catch (e) {}
+  });
+
+  document.getElementById("btn-export").addEventListener("click", function () {
+    if (!state.rootId) { alert("Add at least one node before exporting."); return; }
+    var prevTransform = canvasInner.style.transform;
+    var prevSelected = state.selectedId;
+    state.selectedId = null;
+    render();
+    canvasInner.style.transform = "translate(0px,0px) scale(1)";
+    var bg = getComputedStyle(document.documentElement).getPropertyValue("--bg").trim();
+    html2canvas(canvasInner, { backgroundColor: bg || "#ffffff", useCORS: true }).then(function (canvas) {
+      var link = document.createElement("a");
+      link.download = (state.title || "tree-diagram").replace(/[^a-z0-9\-_]+/gi, "_") + ".png";
+      link.href = canvas.toDataURL("image/png");
+      link.click();
+      canvasInner.style.transform = prevTransform;
+      state.selectedId = prevSelected;
+      render();
+    }).catch(function () {
+      alert("Export failed. Try again, or use a smaller diagram.");
+      canvasInner.style.transform = prevTransform;
+      state.selectedId = prevSelected;
+      render();
+    });
+  });
+
+  window.addEventListener("keydown", function (e) {
+    if (e.target.tagName === "INPUT" || (e.target.getAttribute && e.target.getAttribute("contenteditable") === "true")) return;
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
+      e.preventDefault();
+      if (e.shiftKey) redo(); else undo();
+    }
+  });
+
+  // ---------- boot ----------
+
+  try {
+    var savedTheme = localStorage.getItem(THEME_KEY);
+    if (savedTheme) document.documentElement.setAttribute("data-theme", savedTheme);
+  } catch (e) {}
+
+  var hadSaved = load();
+  render();
+  if (hadSaved) {
+    requestAnimationFrame(fitToScreen);
+  }
+})();
+</script>
+</body>
+</html>
